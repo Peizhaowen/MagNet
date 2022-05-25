@@ -25,6 +25,33 @@ def copy_dir(src_path, target_path):
             shutil.copy(src_path_read_new, target_path_write_new)
 
 
+def crop_big_scale_image(measure_path, item, sub_filelist):
+    after_crop_path = os.path.abspath(measure_path) + '/' + item
+    crop_path = os.path.abspath(measure_path) + '/' + item + '_crop'
+    if not os.path.exists(crop_path):
+        os.mkdir(crop_path)
+    copy_dir(after_crop_path, crop_path)
+    for n in range(len(sub_filelist)):
+        dst = os.path.join(os.path.abspath(crop_path), '' + str(n) + '.png')
+        imgi = io.imread(dst)
+        m = 0
+        crop_length = round(imgi.shape[1] / 3)
+        crop_width = round(imgi.shape[0] / 3)
+        for k in range(3):
+            for j in range(3):
+                img_crop = imgi[crop_width * j:crop_width * (j + 1),
+                           crop_length * k:crop_length * (k + 1)]
+                com_factor = max(img_crop.shape[0], img_crop.shape[1]) / 1024
+                dsti = cv2.resize(img_crop, (round(img_crop.shape[1] / com_factor),
+                                             round(img_crop.shape[0] / com_factor)))
+                dst_crop = os.path.join(os.path.abspath(measure_path + '/' + item),
+                                        '' + str(m + n * 9) + '.png')
+                io.imsave(dst_crop, dsti)
+                m = m + 1
+                io.imsave(dst, dsti)
+    shutil.rmtree(crop_path)
+
+
 def preprocess_image(R):
     # initial file
     path = 'testing_set/{0}R'.format(R)
@@ -43,21 +70,25 @@ def preprocess_image(R):
         sub_filelist = os.listdir(os.path.abspath(measure_path) + '/' + item)
         i = 0
         for img in sub_filelist:
-            if img.endswith('.tif'):
+            if img.endswith('.tif') or img.endswith('.jpg') or img.endswith('.png'):
                 src = os.path.join(os.path.abspath(measure_path + '/' + item), img)
                 dst = os.path.join(os.path.abspath(measure_path + '/' + item), '' + str(i) + '.png')
             try:
                 os.rename(src, dst)
             except:
                 continue
+
             imgi = io.imread(dst)
             imgg = color.rgb2gray(imgi)
             imgg8 = img_as_ubyte(imgg)
-            com_factor = max(imgi.shape[0], imgi.shape[1])/1024
-            dsti = transform.resize(imgg8, (round(imgi.shape[0]/com_factor),
-                                            round(imgi.shape[1]/com_factor)))
+            com_factor = max(imgi.shape[0], imgi.shape[1]) / 1024
+            dsti = transform.resize(imgg8,
+                                    (round(imgi.shape[0] / com_factor),
+                                     round(imgi.shape[1] / com_factor)))
             io.imsave(dst, dsti)
             i = i + 1
+        if item == '500nm':
+            crop_big_scale_image(measure_path, item, sub_filelist)
 
     # file for Unet training
     print('******')
@@ -177,10 +208,11 @@ def get_center_pixel(img_gray, cenx, ceny, len1, len2, rot, pixel_factor):
     cen_px_sum1 = []
     for k in range(round(len1 / pixel_factor)):
         for j in range(round(len2 / pixel_factor)):
-            cen_px_sum1.append(img_gray[ceny + j, cenx + k])
-            cen_px_sum1.append(img_gray[ceny - j, cenx - k])
-            cen_px_sum1.append(img_gray[ceny + j, cenx - k])
-            cen_px_sum1.append(img_gray[ceny - j, cenx + k])
+            if cenx + k < 1024 and ceny + j < 1024:
+                cen_px_sum1.append(img_gray[ceny + j, cenx + k])
+                cen_px_sum1.append(img_gray[ceny - j, cenx - k])
+                cen_px_sum1.append(img_gray[ceny + j, cenx - k])
+                cen_px_sum1.append(img_gray[ceny - j, cenx + k])
     cen_px_mean = np.mean(cen_px_sum1)
     return cen_px_mean
 
@@ -286,6 +318,7 @@ def extract_particle(file, n, m, cnt, imgi_gray):
             dist = cv2.pointPolygonTest(cnt, (i, j), False)
             if dist == 0 or dist == 1:
                 img_single[j, i] = imgi_gray[j, i]
+                # img_single[j, i] = 0
             else:
                 img_single[j, i] = 255
     result_name = file_path + '/{}_particle_{}.png'.format(n, m)
@@ -339,6 +372,7 @@ def extract_particle(file, n, m, cnt, imgi_gray):
 
 
 def get_scale(scale, imgi, imgi_gray):
+    global scale_factor
     edges = cv2.Canny(imgi, 40, 120)
     _, contours, _ = cv2.findContours(edges, cv2.RETR_CCOMP, cv2.CHAIN_APPROX_SIMPLE)
     num = np.size(contours)
@@ -357,15 +391,53 @@ def get_scale(scale, imgi, imgi_gray):
         else:
             elg = 0
 
-        if rot == 0 and elg > 10 and length > 50:
+        if rot == 0 and elg > 6 and length > 50 and len1 > len2:
             cen_pixel = get_center_pixel(imgi_gray, round(cenx), round(ceny),
                                          round(len1), round(len2), round(rot), 2)
             print('pixel:', cen_pixel)
-            if cen_pixel < 3:
+            if cen_pixel < 30:
+
                 box = cv2.boxPoints(rect)
                 box = np.int0(box)
                 cv2.drawContours(imgi, [box], -1, (255, 0, 0), 3)
                 scale_factor = float(scale) / length
+    return scale_factor
+
+
+def get_scale_crop(scale, file, n):
+    global scale_factor
+    file_ID = n // 9
+    for c in range(file_ID * 9, file_ID * 9 + 9):
+        print('crop part', c)
+        file_ini = file + '/' + str(c) + '.png'
+        imgi = cv2.imread(file_ini)
+        imgi_gray = cv2.cvtColor(imgi, cv2.COLOR_RGB2GRAY)
+        edges = cv2.Canny(imgi, 40, 120)
+        _, contours, _ = cv2.findContours(edges, cv2.RETR_CCOMP, cv2.CHAIN_APPROX_SIMPLE)
+        num = np.size(contours)
+        for i in range(0, num):
+            cnt = contours[i]
+            rect = cv2.minAreaRect(cnt)
+            cenx = rect[0][0]
+            ceny = rect[0][1]
+            len1 = rect[1][0]
+            len2 = rect[1][1]
+            length = max(len1, len2)
+            width = min(len1, len2)
+            rot = rect[2]
+            if width != 0:
+                elg = length / width
+            else:
+                elg = 0
+            if rot == 0 and elg > 10 and length > 50 and length is not None:
+                cen_pixel = get_center_pixel(imgi_gray, round(cenx), round(ceny),
+                                             round(len1), round(len2), round(rot), 2)
+                print('pixel:', cen_pixel)
+                if cen_pixel < 30:
+                    box = cv2.boxPoints(rect)
+                    box = np.int0(box)
+                    cv2.drawContours(imgi, [box], -1, (255, 0, 0), 3)
+                    scale_factor = float(scale) / length
     return scale_factor
 
 
@@ -387,9 +459,9 @@ def canny_identify(file, scale, n, lb, bf, ef, pf, pf_all, pt, bt):
         = remove_repetitive_contours(contours)
     cenx_sum, ceny_sum, len1_sum, len2_sum, rot_sum, cnt_sum \
         = edge_filter(cenx_sum, ceny_sum, len1_sum, len2_sum, rot_sum, cnt_sum)
-    # cenx_sum, ceny_sum, len1_sum, len2_sum, rot_sum, cnt_sum \
-    #     = pixels_filter(gray, cnt_sum, cenx_sum, ceny_sum,
-    #                     len1_sum, len2_sum, rot_sum, pf, pt)
+    cenx_sum, ceny_sum, len1_sum, len2_sum, rot_sum, cnt_sum \
+        = pixels_filter(gray, cnt_sum, cenx_sum, ceny_sum,
+                        len1_sum, len2_sum, rot_sum, pf, pt)
     cenx_sum, ceny_sum, len1_sum, len2_sum, rot_sum, cnt_sum \
         = size_filter(cenx_sum, ceny_sum, len1_sum, len2_sum,
                       rot_sum, cnt_sum, lb, bf)
@@ -402,7 +474,10 @@ def canny_identify(file, scale, n, lb, bf, ef, pf, pf_all, pt, bt):
     if not len(cenx_sum) == 0:
         print('TEM -', file, n)
         print("All contours:", np.size(contours))
-        sf = get_scale(scale, imgi, imgi_gray)
+        if float(scale) < 500:
+            sf = get_scale(scale, imgi, imgi_gray)
+        else:
+            sf = get_scale_crop(scale, file, n)
         print(scale, sf)
         length_output, width_output, elg_output = [], [], []
         cen_x_output, cen_y_output, rot_output, label_output = [], [], [], []
@@ -494,13 +569,16 @@ def measure_file_prepare(R):
     path = 'testing_set/{}R'.format(R)
     measure_path = 'testing_set/{}R_measure'.format(R)
     filelist = os.listdir(measure_path)
-    lenet_model = load_model('trained_model/LeNet_(64,200,300)_64×64.hdf5')
+    lenet_model = load_model('trained_model/LeNet_(64,300,300)_64×64new.hdf5')
     for item in filelist:
         sub_filelist = os.listdir(os.path.abspath(path + '/' + item))
-        tot_num = len(sub_filelist)
+        scale = item[:-2]
+        if float(scale) < 500:
+            tot_num = len(sub_filelist)
+        else:
+            tot_num = len(sub_filelist)*9
         print(tot_num)
         file_name = measure_path + '/' + item
-        scale = item[:-2]
         for i in range(tot_num):
             p = multiprocessing.Process(target=canny_identify, args=(file_name, scale, i, 20, 2, 10, 10, 4, 250, 180))
             p.start()

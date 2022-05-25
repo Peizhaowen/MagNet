@@ -4,6 +4,8 @@ from tensorflow.keras.utils import to_categorical
 from imutils import paths
 import cv2
 import numpy as np
+import pandas as pd
+from pandas import DataFrame
 import random
 import os
 from keras.layers import Conv2D, MaxPooling2D, Dropout, Dense, Flatten
@@ -54,7 +56,8 @@ class Lenet:
 def train(aug, model, train_x, train_y, test_x, test_y, batch_size, epochs, steps):
     model.compile(loss="categorical_crossentropy",
                   optimizer="Adam", metrics=["accuracy"])
-    model_checkpoint = ModelCheckpoint('trained_model/LeNet_({0},{1},{2})_64×64.hdf5'.format(batch_size, epochs, steps),
+    model_checkpoint = ModelCheckpoint('trained_model/LeNet_({0},{1},{2})_64×64new.hdf5'
+                                       .format(batch_size, epochs, steps),
                                        monitor='loss', verbose=1, save_best_only=True)
     _history = model.fit_generator(aug.flow(train_x, train_y, batch_size=batch_size),
                                    validation_data=(test_x, test_y),
@@ -70,7 +73,7 @@ def train(aug, model, train_x, train_y, test_x, test_y, batch_size, epochs, step
         df.loc[i, 'val_loss'] = _history.history["val_loss"][i]
         df.loc[i, 'train_acc'] = _history.history["acc"][i]
         df.loc[i, 'val_acc'] = _history.history["val_acc"][i]
-    csv_name = 'trained_model/result_LeNet_({},{},{})_64×64.csv'\
+    csv_name = 'trained_model/result_LeNet_({},{},{})_64×64new.csv'\
         .format(batch_size, epochs, steps)
     df.to_csv(csv_name, index_label="index")
     plt.plot(np.arange(0, N), _history.history["loss"], label="train_loss")
@@ -81,7 +84,8 @@ def train(aug, model, train_x, train_y, test_x, test_y, batch_size, epochs, step
     plt.xlabel("epoch")
     plt.ylabel("loss/acc")
     plt.legend(loc="best")
-    plt.savefig("trained_model/result.png")
+    plt.savefig("trained_model/result_LeNet_({},{},{})_64×64new.png"
+                .format(batch_size, epochs, steps))
     plt.show()
 
 
@@ -92,7 +96,7 @@ if __name__ == "__main__":
     class_num = 4
     norm_size = 64
     batch_size = 64
-    epochs = 200
+    epochs = 300
     steps = 300
     model = Lenet.neural(channel=channel, height=height,
                          width=width, classes=class_num)

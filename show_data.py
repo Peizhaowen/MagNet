@@ -5,6 +5,7 @@ import matplotlib.gridspec as gridspec
 import seaborn as sns
 import pandas as pd
 from pandas import DataFrame
+import numpy as np
 
 
 def load_data(R, part):
@@ -24,19 +25,20 @@ def load_data(R, part):
             # print(data_name)
             if os.path.exists(data_name):
                 reader = pd.read_csv(data_name)
-                for j in range(len(reader.iloc[:, 3])):
-                    width.append(min(reader.iloc[:, 3][j],
-                                     reader.iloc[:, 4][j]))
-                    length.append(max(reader.iloc[:, 3][j],
-                                      reader.iloc[:, 4][j]))
-                    elg.append(1 / reader.iloc[:, 5][j])
-                    label.append(reader.iloc[:, 7][j])
+                if len(reader.iloc[:, 1]) > 0:
+                    for j in range(len(reader.iloc[:, 3])):
+                        width.append(min(reader.iloc[:, 3][j],
+                                         reader.iloc[:, 4][j]))
+                        length.append(max(reader.iloc[:, 3][j],
+                                          reader.iloc[:, 4][j]))
+                        elg.append(1 / reader.iloc[:, 5][j])
+                        label.append(reader.iloc[:, 7][j])
             image_name.append(data_name)
     return width, length, label, elg, image_name
 
 
 def load_data_hand(R):
-    data_path = 'testing_set/figure/{}R.csv'.format(R)
+    data_path = 'figure/{}R.csv'.format(R)
     length, width, elg = [], [], []
     reader = pd.read_csv(data_path)
     for j in range(len(reader.iloc[:, 0])):
@@ -124,10 +126,11 @@ def ax_violin(ax, data, color, y_name, y_low, y_up):
     plt.ylim(y_low, y_up)
     ax.spines['top'].set_visible(False)
     ax.spines['right'].set_visible(False)
-    plt.xticks(fontname="Arial", fontsize=fs)
-    plt.yticks(fontname="Arial", fontsize=fs)
+    plt.xticks(fontname="Arial", fontsize=fs-2)
+    plt.yticks(fontname="Arial", fontsize=fs-2)
     ax.spines['bottom'].set_linewidth(lw)
     ax.spines['left'].set_linewidth(lw)
+    ax.tick_params(which='major', width=lw)
     plt.tight_layout()
 
 
@@ -177,6 +180,37 @@ def ax_pie(lab_list, len_list, elg_list):
     plt.tight_layout()
 
 
+def ax_cdf(ax, data, c, x_name):
+    df: DataFrame = pd.DataFrame(columns=['data'])
+    for i in range(len(data)):
+        df.loc[i, 'data'] = data[i]
+    denominator = len(df['data'])
+    Data2 = pd.Series(df['data'])
+    Fre = Data2.value_counts()
+    Fre_sort = Fre.sort_index(axis=0, ascending=True)
+    Fre_df = Fre_sort.reset_index()
+    Fre_df['data'] = Fre_df['data'] / denominator
+    Fre_df.columns = ['Rds', 'Fre']
+    Fre_df['cumsum'] = np.cumsum(Fre_df['Fre'])
+    plt.plot(Fre_df['Rds'], Fre_df['cumsum'], color=c)
+    plt.xlabel(x_name, fontname="Arial", fontsize=fs)
+    plt.ylabel("Cumulative probability", fontname="Arial", fontsize=fs)
+    if x_name == 'Length (nm)':
+        plt.xlim(0, 300)
+        plt.legend(['Manual', 'CNN', 'CNN/2', 'CNN/4'], loc='best',
+                   frameon=False, fontsize=fs, prop="Arial")
+    else:
+        plt.xlim(0.2, 1)
+    plt.ylim(0, 1)
+    plt.xticks(fontname="Arial", fontsize=fs)
+    plt.yticks(fontname="Arial", fontsize=fs)
+    ax.spines['bottom'].set_linewidth(lw)
+    ax.spines['left'].set_linewidth(lw)
+    ax.spines['top'].set_linewidth(lw)
+    ax.spines['right'].set_linewidth(lw)
+    ax.tick_params(which='major', width=lw)
+
+
 def plot_data(R):
     wid_list1, len_list1, lab_list1, elg_list1, image_name1 = load_data(R, 1)
     wid_list2, len_list2, _, elg_list2, image_name2 = load_data(R, 2)
@@ -187,10 +221,12 @@ def plot_data(R):
     print('image#', len(image_name1), len(image_name2), len(image_name4))
     data_len = [len_list, len_list1, len_list2, len_list4]
     data_elg = [elg_list, elg_list1, elg_list2, elg_list4]
+    print('Length mean#', np.mean(len_list), np.mean(len_list1), np.mean(len_list2), np.mean(len_list4))
+    print('elg mean#', np.mean(elg_list), np.mean(elg_list1), np.mean(elg_list2), np.mean(elg_list4))
     data_len_violin = prepare_violin(len_list, len_list1, len_list2, len_list4)
     data_elg_violin = prepare_violin(elg_list, elg_list1, elg_list2, elg_list4)
     color = ['chocolate', 'steelblue', 'seagreen', 'grey']
-    plt.figure(figsize=(fig_size, fig_size))
+    plt.figure(figsize=(fig_size*ratio, fig_size))
 
     ax1 = plt.subplot(4, 4, 1)
     ax_plot(ax1, len_list, 40, [0, 200], 0, 200,
@@ -250,27 +286,44 @@ def plot_data(R):
     # ax_box(ax10, data_elg, 'Axial ratio (width/length)', 0.2, 1)
     # ax10.set_title('J', fontname="Arial", fontsize=fs + 2,
     #                fontweight='regular', loc='left')
-
     # *************************violin
-    ax9 = plt.subplot(4, 2, 5)
+    ax9 = plt.subplot(4, 4, 9)
     ax_violin(ax9, data_len_violin, color, 'Length (nm)', 0, 300)
     ax9.set_title('(i)', fontname="Arial", fontsize=fs + 2,
                   fontweight='regular', loc='left')
 
-    ax10 = plt.subplot(4, 2, 6)
+    ax10 = plt.subplot(4, 4, 10)
     ax_violin(ax10, data_elg_violin, color, 'Axial ratio (width/length)', 0.2, 1)
     ax10.set_title('(j)', fontname="Arial", fontsize=fs + 2,
                    fontweight='regular', loc='left')
 
-    gs = gridspec.GridSpec(4, 4)
-    ax11 = plt.subplot(gs[3, :3])
-    ax_label(lab_list1, len_list1, elg_list1)
+    ax11 = plt.subplot(4, 4, 11)
+    name = 'Length (nm)'
+    ax_cdf(ax11, data_len[0], color[0], name)
+    ax_cdf(ax11, data_len[1], color[1], name)
+    ax_cdf(ax11, data_len[2], color[2], name)
+    ax_cdf(ax11, data_len[3], color[3], name)
     ax11.set_title('(k)', fontname="Arial", fontsize=fs + 2,
                    fontweight='regular', loc='left')
 
-    ax12 = plt.subplot(gs[3, 3])
-    ax_pie(lab_list1, len_list1, elg_list1)
+    ax12 = plt.subplot(4, 4, 12)
+    name = 'Axial ratio (width/length)'
+    ax_cdf(ax12, data_elg[0], color[0], name)
+    ax_cdf(ax12, data_elg[1], color[1], name)
+    ax_cdf(ax12, data_elg[2], color[2], name)
+    ax_cdf(ax12, data_elg[3], color[3], name)
     ax12.set_title('(l)', fontname="Arial", fontsize=fs + 2,
+                   fontweight='regular', loc='left')
+
+    gs = gridspec.GridSpec(4, 4)
+    ax13 = plt.subplot(gs[3, :3])
+    ax_label(lab_list1, len_list1, elg_list1)
+    ax13.set_title('(m)', fontname="Arial", fontsize=fs + 2,
+                   fontweight='regular', loc='left')
+
+    ax14 = plt.subplot(gs[3, 3])
+    ax_pie(lab_list1, len_list1, elg_list1)
+    ax14.set_title('(n)', fontname="Arial", fontsize=fs + 2,
                    fontweight='regular', loc='left')
 
     plt.savefig('figure/{}R.png'.format(R))
@@ -280,6 +333,7 @@ def plot_data(R):
 
 if __name__ == '__main__':
     lw = 0.4
-    fs = 12
+    fs = 10
     fig_size = 10
+    ratio = 1
     plot_data(16)
